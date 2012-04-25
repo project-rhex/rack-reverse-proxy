@@ -17,6 +17,7 @@ describe Rack::ReverseProxy do
       Rack::ReverseProxy.new(dummy_app) do
         reverse_proxy '/test', 'http://example.com/', {:preserve_host => true}
         reverse_proxy '/2test', lambda{ |env| 'http://example.com/'}
+        reverse_proxy '/xtra', 'http://example.com/', {:preserve_host => true, :extra_headers=>{"X-AUTH"=> "secret auth"}}
       end
     end
 
@@ -38,6 +39,12 @@ describe Rack::ReverseProxy do
       last_response.body.should == "Proxied App2"
     end
 
+    it "Should ad additional headers when added to matcher" do
+      stub_request(:get, 'http://example.com/xtra').with(:headers=>{"X-AUTH" => "secret auth"}).to_return({:body => "Proxied App2"})
+      get '/xtra'
+      last_response.body.should == "Proxied App2"
+    end
+    
     it "the response header should never contain Status" do
       stub_request(:any, 'example.com/test/stuff').to_return(:headers => {'Status' => '200 OK'})
       get '/test/stuff'
@@ -171,6 +178,9 @@ describe Rack::ReverseProxy do
         lambda{ app }.should raise_error(Rack::GenericProxyURI)
       end
     end
+    
+    
+    
 
     describe "with a matching route" do
       def app

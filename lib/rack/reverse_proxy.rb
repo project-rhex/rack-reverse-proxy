@@ -7,6 +7,8 @@ module Rack
       @app = app || lambda {|env| [404, [], []] }
       @matchers = []
       @global_options = {:preserve_host => true, :matching => :all, :verify_ssl => true}
+      @extra_headers = {}
+      @keep_headers = []
       instance_eval &b if block_given?
     end
 
@@ -17,12 +19,16 @@ module Rack
 
       uri = matcher.get_uri(rackreq.fullpath,env)
       all_opts = @global_options.dup.merge(matcher.options)
+      keeper_headers = @keep_headers.dup.concat(matcher.options[:keep_headers]|| [])
       headers = Rack::Utils::HeaderHash.new
       env.each { |key, value|
-        if key =~ /HTTP_(.*)/
+        if key =~ /HTTP_(.*)/ || keeper_headers.index(key)
           headers[$1] = value
         end
       }
+      
+      headers.merge!(get_extra_headers(env, matcher))
+      
       headers['HOST'] = uri.host if all_opts[:preserve_host]
  
       session = Net::HTTP.new(uri.host, uri.port)
@@ -37,13 +43,15 @@ module Rack
       end
       session.start { |http|
         m = rackreq.request_method
+        req = Net::HTTP.const_get(m.capitalize).new(uri.request_uri, headers)
+        req.basic_auth all_opts[:username], all_opts[:password] if all_opts[:username] and all_opts[:password]
         case m
         when "GET", "HEAD", "DELETE", "OPTIONS", "TRACE"
-          req = Net::HTTP.const_get(m.capitalize).new(uri.request_uri, headers)
-          req.basic_auth all_opts[:username], all_opts[:password] if all_opts[:username] and all_opts[:password]
+          
+          
         when "PUT", "POST"
-          req = Net::HTTP.const_get(m.capitalize).new(uri.request_uri, headers)
-          req.basic_auth all_opts[:username], all_opts[:password] if all_opts[:username] and all_opts[:password]
+          
+          
 
           if rackreq.body.respond_to?(:read) && rackreq.body.respond_to?(:rewind)
             body = rackreq.body.read
@@ -71,6 +79,21 @@ module Rack
     end
 
     private
+    
+    def get_extra_headers(env, matcher)
+      _headers = {}
+      [@extra_headers, matcher.options[:extra_headers]].each do |x|
+        if x.kind_of? Hash
+          x.each_pair do |k,v|
+            _headers[k] = (v.respond_to? :call)? v.call(env) : v
+          end
+        elsif x.respond_to? :call
+          _headers.merge!(x.call(env))   
+        end
+      end
+      _headers
+      
+    end
 
     def get_matcher path
       matches = @matchers.select do |matcher|
@@ -104,6 +127,14 @@ module Rack
     def reverse_proxy matcher, url, opts={}
       raise GenericProxyURI.new(url) if matcher.is_a?(String) && url.is_a?(String) && URI(url).class == URI::Generic
       @matchers << ReverseProxyMatcher.new(matcher,url,opts)
+    end
+    
+    def keep_headers(headers = [])
+      @keep_headers.concat(headers)
+    end
+    
+    def extra_headers(headers = {})
+      @extra_headers = headers if (headers.kind_of?( Hash) || headers.respond_to?( :call))
     end
   end
 

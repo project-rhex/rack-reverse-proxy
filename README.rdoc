@@ -21,12 +21,26 @@ Below is an example for configuring the middleware:
   use Rack::ReverseProxy do 
     # Set :preserve_host to true globally (default is true already)
     reverse_proxy_options :preserve_host => true
-
+    
+    # Keep additional headers other than the HTTP_* headers from the original request.
+    keep_headers ["X-AUTH","HEADER1"]
+    
+    #Add additional headers to the proxy request 
+    extra_headers {"X_AUTH" =>"super secret", "HTTP_AUTHROIZATION" => lambda{|env| env["rack.session"]["auth_param"]}}
+    #Supports adding static headers and dynamic headers via lambda.  This could also be a lambda that returns a Hash of headers
+    
+    
     # Forward the path /test* to http://example.com/test*
     reverse_proxy '/test', 'http://example.com/'
 
     # Forward the path /foo/* to http://example.com/bar/*
     reverse_proxy /^\/foo(\/.*)$/, 'http://example.com/bar$1', :username => 'name', :password => 'basic_auth_secret'
+    
+    #Forward the path /test2* to http://example.com/test* with extra header information for only this matcher
+    reverse_proxy '/test2', 'http://example.com/', :extra_headers=>{"X_HEADER" => "header value", "X_HEADER_2" => "Header val 2"}
+    #same semantics apply for the per matcher headers as for the global headers, static , a proc in the hash, or just a proc that returns a hash
+      
+      
   end
 
   app = proc do |env|
@@ -41,6 +55,9 @@ reverse_proxy_options sets global options for all reverse proxies. Available opt
 * :matching is a global only option, if set to :first the first matched url will be requested (no ambigous error). Default: :all.
 * :timeout seconds to timout the requests
 
+
+
+To set them at a global level simply declare them 
 == Note on Patches/Pull Requests
  
 * Fork the project.
